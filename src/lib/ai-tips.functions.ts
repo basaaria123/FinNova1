@@ -13,7 +13,25 @@ export const getAiTip = createServerFn({ method: "POST" })
   .inputValidator((d: AiTipInput) => d)
   .handler(async ({ data }) => {
     const apiKey = process.env.LOVABLE_API_KEY;
-    if (!apiKey) return { tip: null as string | null, error: "missing-key" };
+    
+    // Fallback logic if API Key is not available
+    if (!apiKey) {
+      let tip = "Keep tracking your expenses to stay on top of your financial goals.";
+      
+      if (data.budget > 0 && data.predictedMonthEnd > data.budget) {
+        tip = `Warning: You are on pace to exceed your ₹${Math.round(data.budget)} budget. Try cutting back on ${data.topCategory || "non-essentials"}.`;
+      } else if (data.topCategory && data.topShare > 0.4) {
+        tip = `Over ${Math.round(data.topShare * 100)}% of your spending is on ${data.topCategory}. Watch this category closely.`;
+      } else if (data.prevMonthTotal > 0 && data.predictedMonthEnd < data.prevMonthTotal) {
+        tip = "Great job! You are projected to spend less than last month. Keep up the good habits.";
+      } else if (data.prevMonthTotal > 0 && data.predictedMonthEnd > data.prevMonthTotal * 1.2) {
+        tip = "Your spending is trending higher than last month. Review your recent expenses to find savings.";
+      }
+      
+      // Simulate network delay for effect
+      await new Promise(r => setTimeout(r, 800));
+      return { tip, error: null as string | null };
+    }
 
     const sys =
       "You are a concise personal finance coach for an Indian user. Respond with exactly one short, actionable tip under 22 words. No preface, no emojis, no markdown.";

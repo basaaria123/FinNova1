@@ -1,23 +1,6 @@
 import { useState, useCallback, useEffect, useRef, createContext, useContext, type ReactNode } from "react";
 import type { Expense, Budget, SavingsGoal } from "@/lib/types";
 
-// ---- Helpers ----
-
-function loadJSON<T>(key: string, fallback: T): T {
-  if (typeof window === "undefined") return fallback;
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function saveJSON(key: string, value: unknown) {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(key, JSON.stringify(value));
-}
-
 // ---- Auth Context (shared) ----
 
 export interface AuthUser {
@@ -27,59 +10,95 @@ export interface AuthUser {
 
 interface AuthContextValue {
   user: AuthUser | null;
-  login: (email: string, password: string) => string | null;
-  signup: (name: string, email: string, password: string) => string | null;
+  token: string | null;
+  login: (email: string, password: string) => Promise<string | null>;
+  signup: (name: string, email: string, password: string) => Promise<string | null>;
   logout: () => void;
-  resetPassword: (email: string, newPassword: string) => string | null;
+  resetPassword: (email: string, newPassword: string) => Promise<string | null>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(() =>
-    loadJSON("finova_auth_user", null)
-  );
-
-  const login = useCallback((email: string, password: string) => {
-    const key = email.trim().toLowerCase();
-    const users: Record<string, { name: string; password: string }> = loadJSON("finova_users", {});
-    const entry = users[key];
-    if (!entry) return "No account found with this email";
-    if (entry.password !== password) return "Incorrect password";
-    const u: AuthUser = { name: entry.name, email: key };
-    setUser(u);
-    saveJSON("finova_auth_user", u);
+  const [user, setUser] = useState<AuthUser | null>(() => {
+    if (typeof window !== "undefined") {
+      const u = localStorage.getItem("finova_auth_user");
+      return u ? JSON.parse(u) : null;
+    }
     return null;
+  });
+  const [token, setToken] = useState<string | null>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("finova_auth_token") || null;
+    }
+    return null;
+  });
+
+  const saveAuth = (t: string, u: AuthUser) => {
+    setToken(t);
+    setUser(u);
+    localStorage.setItem("finova_auth_token", t);
+    localStorage.setItem("finova_auth_user", JSON.stringify(u));
+  };
+
+  const login = useCallback(async (email: string, password: string) => {
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password })
+      });
+      const data = await res.json();
+      if (!res.ok) return data.error || "Login failed";
+      saveAuth(data.token, data.user);
+      return null;
+    } catch (err) {
+      return "Network error";
+    }
   }, []);
 
-  const signup = useCallback((name: string, email: string, password: string) => {
-    const key = email.trim().toLowerCase();
-    const users: Record<string, { name: string; password: string }> = loadJSON("finova_users", {});
-    if (users[key]) return "An account with this email already exists";
-    users[key] = { name: name.trim(), password };
-    saveJSON("finova_users", users);
-    const u: AuthUser = { name: name.trim(), email: key };
-    setUser(u);
-    saveJSON("finova_auth_user", u);
-    return null;
+  const signup = useCallback(async (name: string, email: string, password: string) => {
+    try {
+      const res = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, email, password })
+      });
+      const data = await res.json();
+      if (!res.ok) return data.error || "Signup failed";
+      saveAuth(data.token, data.user);
+      return null;
+    } catch (err) {
+      return "Network error";
+    }
   }, []);
 
   const logout = useCallback(() => {
     setUser(null);
-    if (typeof window !== "undefined") localStorage.removeItem("finova_auth_user");
+    setToken(null);
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("finova_auth_user");
+      localStorage.removeItem("finova_auth_token");
+    }
   }, []);
 
-  const resetPassword = useCallback((email: string, newPassword: string) => {
-    const key = email.trim().toLowerCase();
-    const users: Record<string, { name: string; password: string }> = loadJSON("finova_users", {});
-    if (!users[key]) return "No account found with this email";
-    users[key].password = newPassword;
-    saveJSON("finova_users", users);
-    return null;
+  const resetPassword = useCallback(async (email: string, newPassword: string) => {
+    try {
+      const res = await fetch("/api/auth/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, newPassword })
+      });
+      const data = await res.json();
+      if (!res.ok) return data.error || "Reset failed";
+      return null;
+    } catch (err) {
+      return "Network error";
+    }
   }, []);
 
   return (
-    <AuthContext value={{ user, login, signup, logout, resetPassword }}>
+    <AuthContext value={{ user, token, login, signup, logout, resetPassword }}>
       {children}
     </AuthContext>
   );
@@ -89,114 +108,129 @@ export function useAuth(): AuthContextValue {
   const ctx = useContext(AuthContext);
   if (!ctx) {
     return {
-      user: null,
-      login: () => "Auth not available",
-      signup: () => "Auth not available",
+      user: null, token: null,
+      login: async () => "Auth not available",
+      signup: async () => "Auth not available",
       logout: () => {},
-      resetPassword: () => "Auth not available",
+      resetPassword: async () => "Auth not available",
     };
   }
   return ctx;
 }
 
-// ---- Per-user data hooks ----
-
-function userKey(base: string, email: string | undefined) {
-  return email ? `finova_${base}_${email}` : `finova_${base}`;
-}
+// ---- Backend API Hooks ----
 
 export function useExpenses() {
-  const { user } = useAuth();
-  const key = userKey("expenses", user?.email);
-
-  const [expenses, setExpenses] = useState<Expense[]>(() => loadJSON(key, []));
-  const loadedKey = useRef(key);
-
-  // Re-load when user (key) changes
-  useEffect(() => {
-    setExpenses(loadJSON(key, []));
-    loadedKey.current = key;
-  }, [key]);
+  const { token, user } = useAuth();
+  const [expenses, setExpenses] = useState<Expense[]>([]);
 
   useEffect(() => {
-    // Don't save until we've loaded for this key (prevents clobbering on key change)
-    if (loadedKey.current !== key) return;
-    saveJSON(key, expenses);
-  }, [key, expenses]);
+    if (!token) { setExpenses([]); return; }
+    fetch("/api/expenses", { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(data => { if (Array.isArray(data)) setExpenses(data); });
+  }, [token, user]);
 
   const addExpense = useCallback((e: Omit<Expense, "id">) => {
-    setExpenses((prev) => [{ ...e, id: crypto.randomUUID() }, ...prev]);
-  }, []);
+    if (!token) return;
+    const newExpense = { ...e, id: crypto.randomUUID() };
+    setExpenses(prev => [newExpense, ...prev]);
+    fetch("/api/expenses", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(newExpense)
+    }).catch(console.error);
+  }, [token]);
 
   const deleteExpense = useCallback((id: string) => {
-    setExpenses((prev) => prev.filter((e) => e.id !== id));
-  }, []);
+    if (!token) return;
+    setExpenses(prev => prev.filter(e => e.id !== id));
+    fetch(`/api/expenses/${id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` }
+    }).catch(console.error);
+  }, [token]);
 
   return { expenses, addExpense, deleteExpense };
 }
 
 export function useBudget() {
-  const { user } = useAuth();
-  const key = userKey("budget", user?.email);
-
-  const [budget, setBudgetState] = useState<Budget>(() => loadJSON(key, { monthly: 0 }));
-  const loadedKey = useRef(key);
+  const { token, user } = useAuth();
+  const [budget, setBudgetState] = useState<Budget>({ monthly: 0 });
 
   useEffect(() => {
-    setBudgetState(loadJSON(key, { monthly: 0 }));
-    loadedKey.current = key;
-  }, [key]);
-
-  useEffect(() => {
-    if (loadedKey.current !== key) return;
-    saveJSON(key, budget);
-  }, [key, budget]);
+    if (!token) { setBudgetState({ monthly: 0 }); return; }
+    fetch("/api/budget", { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(data => setBudgetState(data || { monthly: 0 }));
+  }, [token, user]);
 
   const setBudget = useCallback((monthly: number) => {
+    if (!token) return;
     setBudgetState({ monthly });
-  }, []);
+    fetch("/api/budget", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ monthly })
+    }).catch(console.error);
+  }, [token]);
 
   return { budget, setBudget };
 }
 
 export function useSavingsGoals() {
-  const { user } = useAuth();
-  const key = userKey("goals", user?.email);
-
-  const [goals, setGoals] = useState<SavingsGoal[]>(() => loadJSON(key, []));
-  const loadedKey = useRef(key);
+  const { token, user } = useAuth();
+  const [goals, setGoals] = useState<SavingsGoal[]>([]);
 
   useEffect(() => {
-    setGoals(loadJSON(key, []));
-    loadedKey.current = key;
-  }, [key]);
-
-  useEffect(() => {
-    if (loadedKey.current !== key) return;
-    saveJSON(key, goals);
-  }, [key, goals]);
+    if (!token) { setGoals([]); return; }
+    fetch("/api/goals", { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(data => { if (Array.isArray(data)) setGoals(data); });
+  }, [token, user]);
 
   const addGoal = useCallback((g: Omit<SavingsGoal, "id">) => {
-    setGoals((prev) => [...prev, { ...g, id: crypto.randomUUID() }]);
-  }, []);
+    if (!token) return;
+    const newGoal = { ...g, id: crypto.randomUUID() };
+    setGoals(prev => [...prev, newGoal]);
+    fetch("/api/goals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(newGoal)
+    }).catch(console.error);
+  }, [token]);
 
   const updateGoal = useCallback((id: string, saved: number) => {
-    setGoals((prev) => prev.map((g) => (g.id === id ? { ...g, saved } : g)));
-  }, []);
+    if (!token) return;
+    setGoals(prev => prev.map(g => g.id === id ? { ...g, saved } : g));
+    fetch(`/api/goals/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ saved })
+    }).catch(console.error);
+  }, [token]);
 
   const deleteGoal = useCallback((id: string) => {
-    setGoals((prev) => prev.filter((g) => g.id !== id));
-  }, []);
+    if (!token) return;
+    setGoals(prev => prev.filter(g => g.id !== id));
+    fetch(`/api/goals/${id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` }
+    }).catch(console.error);
+  }, [token]);
 
   return { goals, addGoal, updateGoal, deleteGoal };
 }
 
 export function useOnboarding() {
-  const [seen, setSeen] = useState(() => loadJSON("finova_onboarded", false));
+  const [seen, setSeen] = useState(() => {
+    if (typeof window !== "undefined") return localStorage.getItem("finova_onboarded") === "true";
+    return false;
+  });
 
   const complete = useCallback(() => {
     setSeen(true);
-    saveJSON("finova_onboarded", true);
+    if (typeof window !== "undefined") localStorage.setItem("finova_onboarded", "true");
   }, []);
 
   return { seen, complete };

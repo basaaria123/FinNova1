@@ -4,7 +4,7 @@ import { useExpenses, useBudget } from "@/hooks/use-finova-store";
 import { formatINR } from "@/lib/format";
 import { useServerFn } from "@tanstack/react-start";
 import { getAiTip } from "@/lib/ai-tips.functions";
-import { PreviousTransactions } from "@/components/PreviousTransactions";
+import { PreviousExpenses } from "@/components/PreviousExpenses";
 import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek,
   isWithinInterval, parseISO, format, subDays, eachDayOfInterval,
@@ -197,8 +197,8 @@ function InsightsPage() {
         </div>
       </div>
 
-      {/* Previous Transactions — blends as a quiet card above the brief */}
-      <PreviousTransactions />
+      {/* Previous Expenses — blends as a quiet card above the brief */}
+      <PreviousExpenses />
 
       {/* Smart Brief — compact, condenses MoM + predicted + AI tip */}
       <div className="finova-card gradient-card p-4 mb-6 relative overflow-hidden">
