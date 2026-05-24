@@ -5,10 +5,17 @@ const { PrismaClient } = require("@prisma/client");
 
 const app = express();
 const prisma = new PrismaClient();
-const PORT = 3000;
-const SECRET_KEY = "finnova_secret_key"; // In production, use environment variables
+const PORT = process.env.PORT || 3000;
+const SECRET_KEY = process.env.SECRET_KEY || "finnova_secret_key";
 
-app.use(cors());
+app.use(cors({
+  origin: [
+    "http://localhost:8080",
+    "http://localhost:5173",
+    process.env.FRONTEND_URL || "*"
+  ],
+  credentials: true
+}));
 app.use(express.json());
 
 // Middleware for JWT Verification

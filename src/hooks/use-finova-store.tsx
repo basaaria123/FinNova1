@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef, createContext, useContext, type ReactNode } from "react";
 import type { Expense, Budget, SavingsGoal } from "@/lib/types";
+import { apiUrl } from "@/lib/api";
 
 // ---- Auth Context (shared) ----
 
@@ -43,7 +44,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (email: string, password: string) => {
     try {
-      const res = await fetch("/api/auth/login", {
+      const res = await fetch(apiUrl("/api/auth/login"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password })
@@ -59,7 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signup = useCallback(async (name: string, email: string, password: string) => {
     try {
-      const res = await fetch("/api/auth/signup", {
+      const res = await fetch(apiUrl("/api/auth/signup"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, email, password })
@@ -84,7 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const resetPassword = useCallback(async (email: string, newPassword: string) => {
     try {
-      const res = await fetch("/api/auth/reset-password", {
+      const res = await fetch(apiUrl("/api/auth/reset-password"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, newPassword })
@@ -126,7 +127,7 @@ export function useExpenses() {
 
   useEffect(() => {
     if (!token) { setExpenses([]); return; }
-    fetch("/api/expenses", { headers: { Authorization: `Bearer ${token}` } })
+    fetch(apiUrl("/api/expenses"), { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
       .then(data => { if (Array.isArray(data)) setExpenses(data); });
   }, [token, user]);
@@ -135,7 +136,7 @@ export function useExpenses() {
     if (!token) return;
     const newExpense = { ...e, id: crypto.randomUUID() };
     setExpenses(prev => [newExpense, ...prev]);
-    fetch("/api/expenses", {
+    fetch(apiUrl("/api/expenses"), {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify(newExpense)
@@ -145,7 +146,7 @@ export function useExpenses() {
   const deleteExpense = useCallback((id: string) => {
     if (!token) return;
     setExpenses(prev => prev.filter(e => e.id !== id));
-    fetch(`/api/expenses/${id}`, {
+    fetch(apiUrl(`/api/expenses/${id}`), {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` }
     }).catch(console.error);
@@ -160,7 +161,7 @@ export function useBudget() {
 
   useEffect(() => {
     if (!token) { setBudgetState({ monthly: 0 }); return; }
-    fetch("/api/budget", { headers: { Authorization: `Bearer ${token}` } })
+    fetch(apiUrl("/api/budget"), { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
       .then(data => setBudgetState(data || { monthly: 0 }));
   }, [token, user]);
@@ -168,7 +169,7 @@ export function useBudget() {
   const setBudget = useCallback((monthly: number) => {
     if (!token) return;
     setBudgetState({ monthly });
-    fetch("/api/budget", {
+    fetch(apiUrl("/api/budget"), {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({ monthly })
@@ -184,7 +185,7 @@ export function useSavingsGoals() {
 
   useEffect(() => {
     if (!token) { setGoals([]); return; }
-    fetch("/api/goals", { headers: { Authorization: `Bearer ${token}` } })
+    fetch(apiUrl("/api/goals"), { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
       .then(data => { if (Array.isArray(data)) setGoals(data); });
   }, [token, user]);
@@ -193,7 +194,7 @@ export function useSavingsGoals() {
     if (!token) return;
     const newGoal = { ...g, id: crypto.randomUUID() };
     setGoals(prev => [...prev, newGoal]);
-    fetch("/api/goals", {
+    fetch(apiUrl("/api/goals"), {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify(newGoal)
@@ -203,7 +204,7 @@ export function useSavingsGoals() {
   const updateGoal = useCallback((id: string, saved: number) => {
     if (!token) return;
     setGoals(prev => prev.map(g => g.id === id ? { ...g, saved } : g));
-    fetch(`/api/goals/${id}`, {
+    fetch(apiUrl(`/api/goals/${id}`), {
       method: "PUT",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({ saved })
@@ -213,7 +214,7 @@ export function useSavingsGoals() {
   const deleteGoal = useCallback((id: string) => {
     if (!token) return;
     setGoals(prev => prev.filter(g => g.id !== id));
-    fetch(`/api/goals/${id}`, {
+    fetch(apiUrl(`/api/goals/${id}`), {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` }
     }).catch(console.error);
